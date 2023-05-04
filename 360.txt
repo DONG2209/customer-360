@@ -1,0 +1,64 @@
+-- C1
+with RFM as(
+select CustomerID ,DATEDIFF(day,max(Purchase_Date),'2022/09/01') as RECENCY ,
+cast(count(distinct(cast([Purchase_Date]as date)))as float)/DATEDIFF(day,min(created_date),max(stopdate)) as FREQUENCY,
+sum(GMV) as MONETARY
+from dbo.Customer_Transaction ctt 
+left join  Customer_Registered crr  on ctt.CustomerID =crr.ID 
+where stopdate is not NULL 
+group by CustomerID
+union
+select CustomerID ,DATEDIFF(day,max(Purchase_Date),'2022/09/01') as RECENCY ,
+cast(count(distinct(cast([Purchase_Date]as date))) as float)/DATEDIFF(day,min(created_date),'2022/09/01') as FREQUENCY,
+sum(GMV) as MONETARY
+from dbo.Customer_Transaction ct 
+left join Customer_Registered cr  on ct.CustomerID =cr.ID 
+where stopdate is NULL
+group by CustomerID ),
+
+RFM_percent_rank as(
+select *, percent_rank() over(order by [RECENCY] DESC) as R_percent_rank 
+		, percent_rank() over(order by [FREQUENCY] ) as F_percent_rank
+		, percent_rank() over(order by [MONETARY] ) as M_percent_rank
+from RFM ),
+RFM_score_1 as(
+select * , case when R_percent_rank>=0   and R_percent_rank <=0.25 then '1'
+				when R_percent_rank>0.25 and R_percent_rank <=0.5  then '2'
+				when R_percent_rank>0.5  and R_percent_rank <=0.75 then '3'
+				else '4' end as R_score
+		 , case when F_percent_rank>=0   and F_percent_rank <=0.25 then '1'
+		        when F_percent_rank>0.25 and F_percent_rank <=0.5  then '2'
+		        when F_percent_rank>0.5  and F_percent_rank <=0.75 then '3'
+		        else '4' end as F_score
+		 , case when M_percent_rank>=0   and M_percent_rank <=0.25 then '1'
+		 		when M_percent_rank>0.25 and M_percent_rank <=0.5  then '2'
+		 		when M_percent_rank>0.5  and M_percent_rank <=0.75 then '3'
+		 		else '4' end as M_score
+from RFM_percent_rank ),
+-- nối chuỗi ex: 1-1-1 thành '111'
+Group_RFM as(
+select * , concat(R_score,F_score,M_score) as RFM_score
+from RFM_score_1 )
+--select RFM_score,count(*) as total_type from Group_RFM
+--group by RFM_score
+
+-- c2
+with RFM as(
+select CustomerID ,DATEDIFF(day,max(cast(Purchase_Date as date)),'2022-09-01') as Recency ,
+	   cast(count(distinct(cast(Purchase_Date as date))) as float)/DATEDIFF(month,min(cast(created_date as date)),'2022-09-01') as Frequency,
+	   sum(GMV) as Monetary
+from Customer_Transaction ct
+join Customer_Registered cr on ct.CustomerID =cr.ID 
+group by CustomerID ),
+RFM_calculation as(
+select *,ntile(4) over(order by Recency desc) as R_score
+		,ntile(4) over(order by Frequency ) as F_score
+		,ntile(4) over(order by Monetary ) as M_score
+from RFM ),
+Group_RFM as(
+select * , concat(R_score,F_score,M_score) as RFM
+from RFM_calculation )
+select * from Group_RFM
+
+select RFM , count(*) as total from Group_RFM
+group by RFM
